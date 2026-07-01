@@ -104,13 +104,13 @@ void main() {
           {
             'id': 'msg_1',
             'conversationId': 'conv_123',
-            'content': 'Hello',
+            'role': 'user',
             'timestamp': 1704067100000,
           },
           {
             'id': 'msg_2',
             'conversationId': 'conv_123',
-            'content': 'World',
+            'role': 'business',
             'timestamp': 1704067150000,
           },
         ],
@@ -123,9 +123,17 @@ void main() {
       expect(msgEvent.conversationId, 'conv_123');
       expect(msgEvent.messages.length, 2);
       expect(msgEvent.messages[0].id, 'msg_1');
-      expect(msgEvent.messages[0].content, 'Hello');
+      expect(msgEvent.messages[0].role, ZendeskMessageRole.user);
+      expect(
+        msgEvent.messages[0].timestamp,
+        DateTime.fromMillisecondsSinceEpoch(1704067100000),
+      );
       expect(msgEvent.messages[1].id, 'msg_2');
-      expect(msgEvent.messages[1].content, 'World');
+      expect(msgEvent.messages[1].role, ZendeskMessageRole.business);
+      expect(
+        msgEvent.messages[1].timestamp,
+        DateTime.fromMillisecondsSinceEpoch(1704067150000),
+      );
     });
 
     test('SendMessageFailed parses correctly', () {
@@ -534,48 +542,31 @@ void main() {
       final message = ZendeskMessage(
         id: 'msg_123',
         conversationId: 'conv_456',
-        authorId: 'author_789',
-        content: 'Hello World',
+        role: ZendeskMessageRole.user,
         timestamp: timestamp,
       );
 
       expect(message.id, 'msg_123');
       expect(message.conversationId, 'conv_456');
-      expect(message.authorId, 'author_789');
-      expect(message.content, 'Hello World');
+      expect(message.role, ZendeskMessageRole.user);
       expect(message.timestamp, timestamp);
-    });
-
-    test('creates message with null optional fields', () {
-      final timestamp = DateTime.now();
-      final message = ZendeskMessage(
-        id: 'msg_123',
-        conversationId: 'conv_456',
-        authorId: null,
-        content: null,
-        timestamp: timestamp,
-      );
-
-      expect(message.id, 'msg_123');
-      expect(message.conversationId, 'conv_456');
-      expect(message.authorId, isNull);
-      expect(message.content, isNull);
     });
 
     test('fromMap creates message correctly', () {
       final message = ZendeskMessage.fromMap({
         'id': 'msg_123',
         'conversationId': 'conv_456',
-        'authorId': 'author_789',
-        'content': 'Hello',
+        'role': 'business',
         'timestamp': 1704067200000,
       });
 
       expect(message.id, 'msg_123');
       expect(message.conversationId, 'conv_456');
-      expect(message.authorId, 'author_789');
-      expect(message.content, 'Hello');
-      expect(message.timestamp, isNotNull);
+      expect(message.role, ZendeskMessageRole.business);
+      expect(
+        message.timestamp,
+        DateTime.fromMillisecondsSinceEpoch(1704067200000),
+      );
     });
   });
 
@@ -748,15 +739,13 @@ void main() {
       final message1 = ZendeskMessage(
         id: 'msg_123',
         conversationId: 'conv_456',
-        authorId: 'author_789',
-        content: 'Hello',
+        role: ZendeskMessageRole.user,
         timestamp: timestamp,
       );
       final message2 = ZendeskMessage(
         id: 'msg_123',
         conversationId: 'conv_456',
-        authorId: 'author_789',
-        content: 'Hello',
+        role: ZendeskMessageRole.user,
         timestamp: timestamp,
       );
 
@@ -768,22 +757,19 @@ void main() {
       final message1 = ZendeskMessage(
         id: 'msg_123',
         conversationId: 'conv_456',
-        authorId: 'author_789',
-        content: 'Hello',
+        role: ZendeskMessageRole.user,
         timestamp: timestamp,
       );
       final message2 = ZendeskMessage(
         id: 'msg_123',
         conversationId: 'conv_456',
-        authorId: 'author_789',
-        content: 'Hello',
+        role: ZendeskMessageRole.user,
         timestamp: timestamp,
       );
       final message3 = ZendeskMessage(
         id: 'different',
         conversationId: 'conv_456',
-        authorId: 'author_789',
-        content: 'Hello',
+        role: ZendeskMessageRole.user,
         timestamp: timestamp,
       );
 
@@ -795,14 +781,13 @@ void main() {
       final message = ZendeskMessage(
         id: 'msg_123',
         conversationId: 'conv_456',
-        authorId: 'author_789',
-        content: 'Hello',
+        role: ZendeskMessageRole.business,
         timestamp: DateTime.now(),
       );
 
       expect(message.toString(), contains('msg_123'));
       expect(message.toString(), contains('conv_456'));
-      expect(message.toString(), contains('Hello'));
+      expect(message.toString(), contains('business'));
     });
 
     test('fromMap handles missing optional fields', () {
@@ -813,9 +798,8 @@ void main() {
 
       expect(message.id, 'msg_123');
       expect(message.conversationId, 'conv_456');
-      expect(message.authorId, isNull);
-      expect(message.content, isNull);
-      expect(message.timestamp, isNull);
+      expect(message.role, ZendeskMessageRole.unknown);
+      expect(message.timestamp, DateTime.fromMillisecondsSinceEpoch(0));
     });
 
     test('fromMap handles missing required fields with defaults', () {
@@ -823,6 +807,38 @@ void main() {
 
       expect(message.id, '');
       expect(message.conversationId, '');
+      expect(message.role, ZendeskMessageRole.unknown);
+      expect(message.timestamp, DateTime.fromMillisecondsSinceEpoch(0));
+    });
+  });
+
+  group('ZendeskMessageRole', () {
+    test('user parses correctly', () {
+      expect(
+        ZendeskMessageRole.fromString('user'),
+        ZendeskMessageRole.user,
+      );
+    });
+
+    test('business parses correctly', () {
+      expect(
+        ZendeskMessageRole.fromString('business'),
+        ZendeskMessageRole.business,
+      );
+    });
+
+    test('unknown string returns unknown', () {
+      expect(
+        ZendeskMessageRole.fromString('invalid'),
+        ZendeskMessageRole.unknown,
+      );
+    });
+
+    test('null string returns unknown', () {
+      expect(
+        ZendeskMessageRole.fromString(null),
+        ZendeskMessageRole.unknown,
+      );
     });
   });
 

@@ -381,9 +381,17 @@ public class ZendeskMessaging: NSObject {
 
         case let .messagesShown(id, timestamp, conversationId, messages):
             let messagesData = messages.map { message -> [String: Any] in
+                let role: String
+                switch message.role {
+                case .user: role = "user"
+                case .business: role = "business"
+                @unknown default: role = "unknown"
+                }
                 return [
                     "id": message.id,
-                    "conversationId": conversationId
+                    "conversationId": conversationId,
+                    "role": role,
+                    "timestamp": Int64(message.timestamp.timeIntervalSince1970 * 1000)
                 ]
             }
             self.channel.invokeMethod(

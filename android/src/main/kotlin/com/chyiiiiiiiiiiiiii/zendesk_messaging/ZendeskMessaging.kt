@@ -6,6 +6,7 @@ import zendesk.android.Zendesk
 import zendesk.android.ZendeskUser
 import zendesk.android.events.ZendeskEvent
 import zendesk.android.events.ZendeskEventListener
+import zendesk.android.events.ZendeskRole
 import zendesk.android.messaging.MessagingScreen
 import zendesk.logger.Logger
 import zendesk.messaging.android.DefaultMessagingFactory
@@ -133,7 +134,12 @@ class ZendeskMessaging(
                 val messagesData = zendeskEvent.messages.map { message ->
                     mapOf(
                         "id" to message.id,
-                        "conversationId" to zendeskEvent.conversationId
+                        "conversationId" to zendeskEvent.conversationId,
+                        "role" to when (message.role) {
+                            ZendeskRole.USER -> "user"
+                            ZendeskRole.BUSINESS -> "business"
+                        },
+                        "timestamp" to message.timestamp
                     )
                 }
                 channel.invokeMethod(

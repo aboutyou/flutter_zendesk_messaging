@@ -55,9 +55,8 @@ Represents a single message in a conversation.
 class ZendeskMessage {
   final String id;               // Unique message ID
   final String conversationId;   // Parent conversation ID
-  final String? authorId;        // Author (user or agent) ID
-  final String? content;         // Message text content
-  final DateTime? timestamp;     // When message was received
+  final ZendeskMessageRole role; // Author role (user or business)
+  final DateTime timestamp;      // When message was received
 }
 ```
 
@@ -66,7 +65,7 @@ class ZendeskMessage {
 ZendeskMessaging.eventStream.listen((event) {
   if (event is MessagesShown) {
     for (final message in event.messages) {
-      print('${message.authorId}: ${message.content}');
+      print('${message.role}: ${message.timestamp}');
     }
   }
 });
