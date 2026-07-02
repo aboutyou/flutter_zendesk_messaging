@@ -139,7 +139,7 @@ class ZendeskMessaging(
                             ZendeskRole.USER -> "user"
                             ZendeskRole.BUSINESS -> "business"
                         },
-                        "timestamp" to message.timestamp
+                        "timestamp" to message.timestamp * 1000
                     )
                 }
                 channel.invokeMethod(
