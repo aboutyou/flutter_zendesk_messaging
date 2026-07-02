@@ -1,3 +1,10 @@
+## 4.0.0
+
+### Breaking Changes
+
+- **ZendeskMessage**: replace `authorId` and `content` with `role` (`ZendeskMessageRole`); make `timestamp` non-nullable
+- **MessagesShown**: each message now includes `role` and `timestamp` from the native SDK
+
 ## 3.2.2
 
 ### Bug Fixes

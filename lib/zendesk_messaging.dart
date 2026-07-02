@@ -52,6 +52,7 @@ library zendesk_messaging;
 // Enums
 export 'src/enums/authentication_type.dart';
 export 'src/enums/connection_status.dart';
+export 'src/enums/message_role.dart';
 export 'src/enums/push_responsibility.dart';
 
 // Models

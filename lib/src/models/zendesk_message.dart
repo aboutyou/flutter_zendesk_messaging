@@ -1,3 +1,5 @@
+import '../enums/message_role.dart';
+
 /// Message data from Zendesk SDK events.
 ///
 /// Represents a single message in a conversation.
@@ -6,9 +8,8 @@ class ZendeskMessage {
   const ZendeskMessage({
     required this.id,
     required this.conversationId,
-    this.authorId,
-    this.content,
-    this.timestamp,
+    required this.role,
+    required this.timestamp,
   });
 
   /// The unique message ID.
@@ -17,11 +18,8 @@ class ZendeskMessage {
   /// The ID of the conversation this message belongs to.
   final String conversationId;
 
-  /// The ID of the message author (user or agent).
-  final String? authorId;
-
-  /// The text content of the message.
-  final String? content;
+  /// The role of the message author (user or business).
+  final ZendeskMessageRole role;
 
   /// The timestamp when the message was received.
   final DateTime? timestamp;
@@ -33,8 +31,7 @@ class ZendeskMessage {
     return ZendeskMessage(
       id: map['id'] as String? ?? '',
       conversationId: map['conversationId'] as String? ?? '',
-      authorId: map['authorId'] as String?,
-      content: map['content'] as String?,
+      role: ZendeskMessageRole.fromString(map['role'] as String?),
       timestamp: map['timestamp'] != null
           ? DateTime.fromMillisecondsSinceEpoch(map['timestamp'] as int)
           : null,
@@ -44,7 +41,7 @@ class ZendeskMessage {
   @override
   String toString() {
     return 'ZendeskMessage(id: $id, conversationId: $conversationId, '
-        'authorId: $authorId, content: $content, timestamp: $timestamp)';
+        'role: $role, timestamp: $timestamp)';
   }
 
   @override
@@ -53,12 +50,10 @@ class ZendeskMessage {
     return other is ZendeskMessage &&
         other.id == id &&
         other.conversationId == conversationId &&
-        other.authorId == authorId &&
-        other.content == content &&
+        other.role == role &&
         other.timestamp == timestamp;
   }
 
   @override
-  int get hashCode =>
-      Object.hash(id, conversationId, authorId, content, timestamp);
+  int get hashCode => Object.hash(id, conversationId, role, timestamp);
 }
