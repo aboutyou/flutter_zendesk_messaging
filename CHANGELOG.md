@@ -1,9 +1,96 @@
-## 4.0.0
+## 3.6.0
 
-### Breaking Changes
+### Behavior Changes
 
-- **ZendeskMessage**: replace `authorId` and `content` with `role` (`ZendeskMessageRole`); make `timestamp` non-nullable
-- **MessagesShown**: each message now includes `role` and `timestamp` from the native SDK
+- **iOS**: `invalidate()` now clears the SDK's local storage (user data,
+  conversations and cache), matching Android. Previously the iOS SDK was
+  invalidated with `clearStorage: false`, so the previous user's data and
+  conversation history stayed on the device after `logoutUser()` +
+  `invalidate()` and could show up for the next user. Android's
+  `Zendesk.invalidate()` has no option to keep data, so behavior is now the
+  same on both platforms. Apps that relied on iOS keeping anonymous
+  conversations across `invalidate()` will now start with a new anonymous
+  user (#107, #108).
+
+### Documentation
+
+- **iOS**: `setLocale()` docs now say the new locale applies from the next app
+  launch. iOS reads `AppleLanguages` only at launch, so the previously
+  documented `invalidate()` + `initialize()` flow did not switch the language
+  at runtime (#105, #109).
+
+## 3.5.0
+
+### Dependencies
+
+- **iOS**: Update `ZendeskSDKMessaging` from 2.36.0 to 2.39.0 (CocoaPods and
+  Swift Package Manager). Picks up the SDK fixes for the JWT-expiration check
+  that could leave the app loading forever (2.36.1) and for client data being
+  cleared unexpectedly (2.37.0). The minimum iOS version is unchanged; 2.40.0
+  is deliberately skipped because it raises the SDK's minimum to iOS 16.
+- **Android**: Update `messaging-android` from 2.36.1 to 2.40.0. The SDK is now
+  built with Kotlin 2.2.21, so apps need Kotlin 2.1 or later.
+
+## 3.4.0
+
+### New Features
+
+- **iOS**: Add Swift Package Manager (SPM) support (#100). The plugin now ships
+  a `Package.swift` alongside the existing podspec, so apps that have migrated
+  to SPM can depend on it. CocoaPods remains fully supported — both dependency
+  managers resolve the same `ZendeskSDKMessaging` 2.36.0 native SDK, so existing
+  CocoaPods users are unaffected and no app changes are required.
+
+## 3.3.0
+
+### New Features
+
+- **Locale**: Add `setLocale(locale)` to override the Zendesk messaging UI
+  language at runtime (#97).
+  - Android: Sets `Locale.setDefault()` and updates the application/activity
+    resource configuration. Can switch at runtime before launching the UI.
+  - iOS: Sets the `AppleLanguages` user default for SDK localization. Set it
+    **before** `initialize()`; to change after, call `invalidate()` then
+    `initialize()` again.
+
+### Build
+
+- **Android**: Migrate to Flutter's built-in Kotlin so the plugin builds with
+  Android Gradle Plugin (AGP) 9+ (#104). The Kotlin Gradle Plugin is now applied
+  only on AGP < 9, and the deprecated `kotlinOptions` block is replaced by the
+  `kotlin.compilerOptions` DSL. Apps on AGP < 9 are unaffected.
+
+## 3.2.3
+
+### Bug Fixes
+
+- **iOS**: Parse the APNs device token as hex before forwarding to
+  `PushNotifications.updatePushNotificationToken`. The previous code used
+  `token.data(using: .utf8)`, which produced the UTF-8 bytes of the hex
+  string instead of the 32-byte device token, so Zendesk registered a
+  malformed token and never delivered iOS push.
+- **Android**: Use the application context (stored in `onAttachedToEngine`)
+  for `handleNotification` instead of the Activity. The Activity is null in a
+  background isolate / terminated state, so the previous code bailed with
+  `no_context` and background pushes never displayed.
+  `PushNotifications.displayNotification` only needs a `Context`.
+- **Android**: Guard `initialize` against a null Activity to return a clean
+  error instead of a `NullPointerException`. Push display does not require
+  `initialize`; it uses `shouldBeDisplayed` / `handleNotification`.
+
+### Documentation
+
+- Correct the push notification token usage in all README translations and the
+  `updatePushNotificationToken` API doc. On iOS, pass the APNs device token
+  from `getAPNSToken()`, not the FCM token from `getToken()` — using the FCM
+  token on iOS silently fails to deliver push. Token retrieval is now split per
+  platform, and `onTokenRefresh` is guarded to Android (iOS APNs tokens are
+  re-fetched on launch).
+- Document that `showConversation` should be called once per navigation. Rapid
+  duplicate calls can make the underlying SDK open the default conversation
+  instead of the requested one, so callers that may fire more than once for a
+  single user action (e.g. a notification tap reaching multiple handlers) should
+  de-duplicate.
 
 ## 3.2.2
 

@@ -20,6 +20,7 @@ A Flutter plugin for integrating Zendesk Messaging SDK into your mobile applicat
 - Unread message count tracking
 - Conversation tags and custom fields
 - Connection status monitoring
+- Runtime locale override for messaging UI
 - Push notifications support (FCM/APNs)
 
 ## Requirements
@@ -67,6 +68,10 @@ Then run:
 ```bash
 cd ios && pod install
 ```
+
+#### Swift Package Manager
+
+This plugin also supports [Swift Package Manager](https://docs.flutter.dev/packages-and-plugins/swift-package-manager/for-app-developers). If your app has migrated to SPM, no extra setup is required — just make sure your app's iOS deployment target is at least 14.0. CocoaPods remains fully supported, so existing apps need no changes.
 
 ## Quick Start
 
@@ -134,10 +139,6 @@ if (user != null) {
 
 // Logout
 await ZendeskMessaging.logoutUser();
-
-// Method 2 if you need callbacks
-await ZendeskMessaging.loginUserCallbacks(jwt: "YOUR_JWT", onSuccess: (id, externalId) => ..., onFailure: () => ...);
-await ZendeskMessaging.logoutUserCallbacks(onSuccess: () => ..., onFailure: () => ...);
 ```
 
 ## Event Handling
@@ -307,6 +308,31 @@ final color = switch (status) {
 };
 ```
 
+## Locale
+
+Override the device's system locale so the Zendesk messaging UI matches your app's language. The Zendesk SDK ships with [33 languages](https://developer.zendesk.com/documentation/zendesk-web-widget-sdks/sdks/android/localization/).
+
+```dart
+// Best: set locale before initialization
+await ZendeskMessaging.setLocale('es');
+await ZendeskMessaging.initialize(
+  androidChannelKey: '<YOUR_ANDROID_CHANNEL_KEY>',
+  iosChannelKey: '<YOUR_IOS_CHANNEL_KEY>',
+);
+
+// Android: can also switch at runtime before show()
+await ZendeskMessaging.setLocale('ja');
+await ZendeskMessaging.show();
+
+// iOS: applies from the next app launch
+await ZendeskMessaging.setLocale('fr');
+// invalidate() + initialize() does not reload the language on iOS.
+```
+
+**Platform details:**
+- **Android**: Sets `Locale.setDefault()` and updates application/activity resource configuration. The SDK resolves UI strings from Android's resource system, so this takes effect when the SDK launches its messaging Activity. Can switch at runtime.
+- **iOS**: Sets the `AppleLanguages` user default, which controls which localization bundle the SDK loads. iOS reads this value only when the app launches, so the new language applies from the **next app launch**. Calling `invalidate()` then `initialize()` does not switch it at runtime ([#105](https://github.com/chyiiiiiiiiiiii/flutter_zendesk_messaging/issues/105)). The value is saved on the device and also sets the language iOS uses for your app's own localized resources.
+
 ## Push Notifications
 
 Enable push notifications to notify users of new messages when the app is in the background or closed.
@@ -342,6 +368,7 @@ Enable push notifications to notify users of new messages when the app is in the
 ### Usage
 
 ```dart
+import 'dart:io' show Platform;
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:zendesk_messaging/zendesk_messaging.dart';
 
@@ -351,16 +378,22 @@ Future<void> setupPushNotifications() async {
   // Request permission
   await messaging.requestPermission();
 
-  // Get and register token
-  final token = await messaging.getToken();
-  if (token != null) {
-    await ZendeskMessaging.updatePushNotificationToken(token);
-  }
+  // Get and register the correct token per platform
+  // - Android: FCM token via getToken()
+  // - iOS: APNs device token via getAPNSToken()
+  //   (Zendesk iOS SDK requires APNs token, NOT the FCM token)
+  await _registerPushToken(messaging);
 
   // Listen for token refresh
-  messaging.onTokenRefresh.listen((token) {
-    ZendeskMessaging.updatePushNotificationToken(token);
-  });
+  // - Android: onTokenRefresh returns new FCM tokens
+  // - iOS: APNs tokens rarely change (device restore, OS update);
+  //   re-fetch via getAPNSToken() on each app launch (done above).
+  //   onTokenRefresh returns FCM tokens which are NOT usable here.
+  if (Platform.isAndroid) {
+    messaging.onTokenRefresh.listen((token) {
+      ZendeskMessaging.updatePushNotificationToken(token);
+    });
+  }
 
   // Handle foreground notifications
   FirebaseMessaging.onMessage.listen((message) async {
@@ -381,7 +414,21 @@ Future<void> setupPushNotifications() async {
     await ZendeskMessaging.handleNotificationTap(message.data);
   });
 }
+
+Future<void> _registerPushToken(FirebaseMessaging messaging) async {
+  String? token;
+  if (Platform.isAndroid) {
+    token = await messaging.getToken();
+  } else if (Platform.isIOS) {
+    token = await messaging.getAPNSToken();
+  }
+  if (token != null) {
+    await ZendeskMessaging.updatePushNotificationToken(token);
+  }
+}
 ```
+
+> **Important (iOS):** The Zendesk iOS SDK uses APNs directly for push notifications, not FCM. You must pass the APNs device token via `getAPNSToken()`, not the FCM registration token from `getToken()`. Using the wrong token type will silently fail to deliver notifications. APNs tokens rarely change, but calling `getAPNSToken()` on each app launch ensures the token stays current.
 
 ### Push Notification API
 
@@ -407,7 +454,8 @@ Future<void> setupPushNotifications() async {
 // Check if SDK is initialized
 final isInit = await ZendeskMessaging.isInitialized();
 
-// Invalidate SDK instance (cleanup)
+// Invalidate SDK instance (cleanup). Clears all locally stored SDK data
+// (user, conversations, cache) on both Android and iOS.
 await ZendeskMessaging.invalidate();
 // After invalidate, you must call initialize() again to use the SDK
 ```
@@ -420,7 +468,7 @@ await ZendeskMessaging.invalidate();
 |--------|---------|-------------|
 | `initialize(androidChannelKey, iosChannelKey)` | `Future<void>` | Initialize the SDK |
 | `isInitialized()` | `Future<bool>` | Check if SDK is initialized |
-| `invalidate()` | `Future<void>` | Invalidate SDK instance |
+| `invalidate()` | `Future<void>` | Invalidate SDK instance and clear local SDK data |
 | `show()` | `Future<void>` | Show messaging UI |
 | `showConversation(id)` | `Future<void>` | Show specific conversation |
 | `showConversationList()` | `Future<void>` | Show conversation list |
@@ -437,6 +485,7 @@ await ZendeskMessaging.invalidate();
 | `setConversationFields(fields)` | `Future<void>` | Set custom fields |
 | `clearConversationFields()` | `Future<void>` | Clear custom fields |
 | `getConnectionStatus()` | `Future<ZendeskConnectionStatus>` | Get connection status |
+| `setLocale(locale)` | `Future<void>` | Set messaging UI locale |
 | `updatePushNotificationToken(token)` | `Future<void>` | Register push token |
 | `shouldBeDisplayed(data)` | `Future<ZendeskPushResponsibility>` | Check notification source |
 | `handleNotification(data)` | `Future<bool>` | Handle push notification |
@@ -474,7 +523,7 @@ class ZendeskMessage {
   String id;
   String conversationId;
   ZendeskMessageRole role;
-  DateTime timestamp;
+  DateTime? timestamp;
 }
 ```
 
@@ -573,7 +622,8 @@ await ZendeskMessaging.listenUnreadMessages();
 
 | Plugin | Android SDK | iOS SDK |
 |--------|-------------|---------|
-| 3.1.0 | 2.36.1 | 2.36.0 |
+| 3.5.0 – 3.6.0 | 2.40.0 | 2.39.0 |
+| 3.1.0 – 3.4.0 | 2.36.1 | 2.36.0 |
 | 3.0.0 | 2.36.1 | 2.36.0 |
 | 2.9.x | 2.26.0 | 2.24.0 |
 

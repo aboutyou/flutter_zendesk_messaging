@@ -20,6 +20,7 @@ Zendesk Messaging SDKをモバイルアプリケーションに統合するた�
 - 未読メッセージ数の追跡
 - 会話タグとカスタムフィールド
 - 接続ステータスの監視
+- メッセージングUIのロケール上書き
 - プッシュ通知のサポート（FCM/APNs）
 
 ## 要件
@@ -163,14 +164,46 @@ ZendeskMessaging.eventStream.listen((event) {
 await ZendeskMessaging.listenUnreadMessages();
 ```
 
+## ロケール
+
+デバイスのシステムロケールを上書きして、Zendesk MessagingのUIをアプリの言語に合わせます。Zendesk SDKは[33言語](https://developer.zendesk.com/documentation/zendesk-web-widget-sdks/sdks/android/localization/)に対応しています。
+
+```dart
+// 推奨: 初期化の前にロケールを設定します
+await ZendeskMessaging.setLocale('es');
+await ZendeskMessaging.initialize(
+  androidChannelKey: '<YOUR_ANDROID_CHANNEL_KEY>',
+  iosChannelKey: '<YOUR_IOS_CHANNEL_KEY>',
+);
+
+// Android: show() の前に実行時に切り替えることもできます
+await ZendeskMessaging.setLocale('ja');
+await ZendeskMessaging.show();
+
+// iOS: 次回のアプリ起動時に反映されます
+await ZendeskMessaging.setLocale('fr');
+// iOSでは invalidate() + initialize() で言語は再読み込みされません。
+```
+
+**プラットフォーム別の挙動:**
+- **Android**: `Locale.setDefault()` を設定し、アプリケーション/アクティビティのリソース設定を更新します。SDKはAndroidのリソースシステムからUI文字列を解決するため、SDKがメッセージングActivityを起動したときに反映されます。実行時に切り替え可能です。
+- **iOS**: `AppleLanguages` のユーザーデフォルトを設定し、SDKが読み込むローカライズバンドルを制御します。iOSはこの値をアプリ起動時にのみ読み込むため、新しい言語は**次回のアプリ起動時**に反映されます。`invalidate()` の後に `initialize()` を呼んでも実行時には切り替わりません（[#105](https://github.com/chyiiiiiiiiiiii/flutter_zendesk_messaging/issues/105)）。この値はデバイスに保存され、アプリ自体のローカライズリソースの言語にも適用されます。
+
 ## プッシュ通知
 
 ```dart
+import 'dart:io' show Platform;
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:zendesk_messaging/zendesk_messaging.dart';
 
-// プッシュトークンを登録します
-final token = await FirebaseMessaging.instance.getToken();
+// プラットフォームに応じて正しいトークンを登録します
+// - Android: getToken() で取得する FCM トークン
+// - iOS: getAPNSToken() で取得する APNs デバイストークン
+//   （Zendesk iOS SDK は FCM ではなく APNs トークンが必要です）
+final messaging = FirebaseMessaging.instance;
+final token = Platform.isIOS
+    ? await messaging.getAPNSToken()
+    : await messaging.getToken();
 if (token != null) {
   await ZendeskMessaging.updatePushNotificationToken(token);
 }
@@ -184,6 +217,8 @@ FirebaseMessaging.onMessage.listen((message) async {
 });
 ```
 
+> **重要 (iOS):** Zendesk iOS SDK はプッシュ通知に FCM ではなく APNs を直接使用します。`getToken()` の FCM 登録トークンではなく、`getAPNSToken()` の APNs デバイストークンを渡す必要があります。誤ったトークンを渡すと、通知は何も表示されずに失敗します。
+
 ## APIリファレンス
 
 ### ZendeskMessaging
@@ -194,6 +229,7 @@ FirebaseMessaging.onMessage.listen((message) async {
 | `show()` | `Future<void>` | メッセージングUIを表示します |
 | `loginUser(jwt)` | `Future<ZendeskLoginResponse>` | JWTでログインします |
 | `logoutUser()` | `Future<void>` | ユーザーをログアウトします |
+| `setLocale(locale)` | `Future<void>` | メッセージングUIのロケールを設定します |
 | ... | ... | ... |
 
 ## ライセンス

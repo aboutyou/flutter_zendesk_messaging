@@ -169,6 +169,10 @@ class ZendeskMessaging {
 
   /// Invalidate the current Zendesk SDK instance.
   ///
+  /// Closes connections and clears all locally stored SDK data (user state,
+  /// conversations and cache) on both Android and iOS. This does not end a
+  /// JWT user's session on the backend; call [logoutUser] first for that.
+  ///
   /// After calling this method, [initialize] must be called again before
   /// using any other ZendeskMessaging methods.
   ///
@@ -216,6 +220,12 @@ class ZendeskMessaging {
   /// [conversationId] The ID of the conversation to display.
   ///
   /// Requires multi-conversations to be enabled in Zendesk Admin Center.
+  ///
+  /// Call this once per navigation. Invoking it (or another messaging
+  /// navigation method) again in quick succession can cause the underlying SDK
+  /// to open the default conversation instead of [conversationId]. If a single
+  /// user action might trigger multiple calls — e.g. a notification tap handled
+  /// by more than one listener — de-duplicate before calling.
   ///
   /// Throws [ArgumentError] if conversationId is empty.
   /// Throws [PlatformException] if the conversation cannot be shown.
@@ -571,33 +581,117 @@ class ZendeskMessaging {
   }
 
   // ============================================================================
+  // Locale
+  // ============================================================================
+
+  /// Set the locale for the Zendesk Messaging UI.
+  ///
+  /// Overrides the device's system locale so the Zendesk chat UI
+  /// matches the app's current language setting.
+  ///
+  /// [locale] A BCP 47 language tag (e.g. `'en'`, `'es'`, `'zh-TW'`).
+  ///
+  /// Can be called before or after [initialize]. On Android, calling it
+  /// **before** [initialize] is the most reliable. On iOS, the new locale
+  /// applies from the next app launch (see below).
+  ///
+  /// **How it works:**
+  /// - **Android**: Sets `Locale.setDefault()` and updates both the
+  ///   application and activity resource configurations. The Zendesk SDK
+  ///   resolves UI strings from Android's resource system, so this takes
+  ///   effect when the SDK launches its messaging Activity.
+  /// - **iOS**: Sets the `AppleLanguages` user default, which controls
+  ///   which `.lproj` bundle the SDK loads localized strings from.
+  ///   iOS reads this value only when the app launches, so the new
+  ///   locale applies from the **next app launch**. Calling [invalidate]
+  ///   then [initialize] does not switch it at runtime (see
+  ///   https://github.com/chyiiiiiiiiiiii/flutter_zendesk_messaging/issues/105).
+  ///   The value is saved on the device and also sets the language iOS
+  ///   uses for the host app's own localized resources.
+  ///
+  /// **Supported languages:** The Zendesk SDK ships with 33 languages.
+  /// See the [localization docs](https://developer.zendesk.com/documentation/zendesk-web-widget-sdks/sdks/android/localization/)
+  /// for the full list.
+  ///
+  /// Throws [ArgumentError] if locale is empty.
+  ///
+  /// Example:
+  /// ```dart
+  /// // Best: set locale before initialization
+  /// await ZendeskMessaging.setLocale('es');
+  /// await ZendeskMessaging.initialize(
+  ///   androidChannelKey: 'key',
+  ///   iosChannelKey: 'key',
+  /// );
+  ///
+  /// // Also works on Android: set locale then show
+  /// await ZendeskMessaging.setLocale('ja');
+  /// await ZendeskMessaging.show();
+  ///
+  /// // iOS: applies from the next app launch
+  /// await ZendeskMessaging.setLocale('fr');
+  /// // invalidate() + initialize() does not reload the language on iOS.
+  /// ```
+  static Future<void> setLocale(String locale) async {
+    if (locale.isEmpty) {
+      throw ArgumentError('locale cannot be empty');
+    }
+
+    try {
+      await _channel.invokeMethod('setLocale', {
+        'locale': locale,
+      });
+      ZendeskMessagingConfig.log('Locale set to: $locale');
+    } catch (e, stackTrace) {
+      ZendeskMessagingConfig.logError(
+        'setLocale failed',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      rethrow;
+    }
+  }
+
+  // ============================================================================
   // Push Notifications
   // ============================================================================
 
   /// Update the push notification token with Zendesk.
   ///
-  /// Call this method when you receive a new FCM token (Android) or
-  /// APNs device token (iOS) to enable push notifications.
+  /// Call this method when you receive a new push notification token
+  /// to enable push notifications.
   ///
   /// [token] The push notification token string.
-  /// - Android: FCM token from FirebaseMessaging.instance.getToken()
-  /// - iOS: APNs device token converted to string
+  /// - Android: FCM token from `FirebaseMessaging.instance.getToken()`
+  /// - iOS: **APNs device token** (hex string) from
+  ///   `FirebaseMessaging.instance.getAPNSToken()`. The Zendesk iOS SDK
+  ///   requires the native APNs token, not the FCM token.
+  ///
+  /// **Important (iOS):** You must pass the APNs device token, not the FCM
+  /// registration token. FCM tokens are not compatible with the Zendesk iOS
+  /// SDK's push notification system. Use `getAPNSToken()` instead of
+  /// `getToken()` on iOS.
   ///
   /// Throws [ArgumentError] if token is empty.
   /// Throws [PlatformException] if the update fails.
   ///
   /// Example:
   /// ```dart
-  /// // Android with firebase_messaging
-  /// final fcmToken = await FirebaseMessaging.instance.getToken();
-  /// if (fcmToken != null) {
-  ///   await ZendeskMessaging.updatePushNotificationToken(fcmToken);
-  /// }
+  /// import 'dart:io' show Platform;
   ///
-  /// // Listen for token refresh
-  /// FirebaseMessaging.instance.onTokenRefresh.listen((token) {
-  ///   ZendeskMessaging.updatePushNotificationToken(token);
-  /// });
+  /// // Get the correct token per platform
+  /// final messaging = FirebaseMessaging.instance;
+  /// String? token;
+  /// if (Platform.isAndroid) {
+  ///   token = await messaging.getToken();
+  /// } else if (Platform.isIOS) {
+  ///   // iOS requires the APNs token, not the FCM token
+  ///   final apnsToken = await messaging.getAPNSToken();
+  ///   token = apnsToken;
+  /// }
+  /// if (token != null) {
+  ///   await ZendeskMessaging.updatePushNotificationToken(token);
+  /// }
   /// ```
   static Future<void> updatePushNotificationToken(String token) async {
     if (token.isEmpty) {

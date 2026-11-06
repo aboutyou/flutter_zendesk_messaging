@@ -20,6 +20,7 @@ Flutter 插件，用于将 Zendesk Messaging SDK 集成到您的移动应用程�
 - 未读消息数量跟踪
 - 会话标签和自定义字段
 - 连接状态监控
+- 客服界面语言覆盖
 - 推送通知支持（FCM/APNs）
 
 ## 系统要求
@@ -303,6 +304,31 @@ final color = switch (status) {
 };
 ```
 
+## 语言设置
+
+覆盖设备的系统语言，让 Zendesk 客服界面与 App 的语言设置保持一致。Zendesk SDK 内置 [33 种语言](https://developer.zendesk.com/documentation/zendesk-web-widget-sdks/sdks/android/localization/)。
+
+```dart
+// 最佳做法：在初始化之前设置语言
+await ZendeskMessaging.setLocale('es');
+await ZendeskMessaging.initialize(
+  androidChannelKey: '<YOUR_ANDROID_CHANNEL_KEY>',
+  iosChannelKey: '<YOUR_IOS_CHANNEL_KEY>',
+);
+
+// Android：也可在 show() 之前于运行时切换
+await ZendeskMessaging.setLocale('ja');
+await ZendeskMessaging.show();
+
+// iOS：下次启动 App 时才会生效
+await ZendeskMessaging.setLocale('fr');
+// 在 iOS 上，invalidate() + initialize() 不会重新加载语言。
+```
+
+**平台细节：**
+- **Android**：设置 `Locale.setDefault()` 并更新 application/activity 的资源配置。SDK 通过 Android 资源系统解析 UI 字符串，因此在 SDK 启动客服 Activity 时生效，可在运行时切换。
+- **iOS**：设置 `AppleLanguages` user default，决定 SDK 加载哪个语言 bundle。iOS 只在 App 启动时读取这个值，因此新语言要到**下次启动 App** 才会生效；调用 `invalidate()` 再 `initialize()` 无法在运行时切换（[#105](https://github.com/chyiiiiiiiiiiii/flutter_zendesk_messaging/issues/105)）。这个值会保存在设备上，也会改变 iOS 为你的 App 本身加载的语言资源。
+
 ## 推送通知
 
 启用推送通知，在应用程序处于后台或已关闭时通知用户有新消息。
@@ -338,6 +364,7 @@ final color = switch (status) {
 ### 使用方法
 
 ```dart
+import 'dart:io' show Platform;
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:zendesk_messaging/zendesk_messaging.dart';
 
@@ -347,16 +374,22 @@ Future<void> setupPushNotifications() async {
   // 请求权限
   await messaging.requestPermission();
 
-  // 获取并注册 token
-  final token = await messaging.getToken();
-  if (token != null) {
-    await ZendeskMessaging.updatePushNotificationToken(token);
-  }
+  // 按平台获取并注册正确的 token
+  // - Android：通过 getToken() 获取 FCM token
+  // - iOS：通过 getAPNSToken() 获取 APNs device token
+  //   （Zendesk iOS SDK 需要 APNs token，而非 FCM token）
+  await _registerPushToken(messaging);
 
   // 监听 token 刷新
-  messaging.onTokenRefresh.listen((token) {
-    ZendeskMessaging.updatePushNotificationToken(token);
-  });
+  // - Android：onTokenRefresh 会返回新的 FCM token
+  // - iOS：APNs token 很少改变（设备还原、系统更新）；
+  //   每次启动 app 时通过 getAPNSToken() 重新获取（上方已处理）。
+  //   onTokenRefresh 返回的是 FCM token，此处不适用。
+  if (Platform.isAndroid) {
+    messaging.onTokenRefresh.listen((token) {
+      ZendeskMessaging.updatePushNotificationToken(token);
+    });
+  }
 
   // 处理前台通知
   FirebaseMessaging.onMessage.listen((message) async {
@@ -377,7 +410,21 @@ Future<void> setupPushNotifications() async {
     await ZendeskMessaging.handleNotificationTap(message.data);
   });
 }
+
+Future<void> _registerPushToken(FirebaseMessaging messaging) async {
+  String? token;
+  if (Platform.isAndroid) {
+    token = await messaging.getToken();
+  } else if (Platform.isIOS) {
+    token = await messaging.getAPNSToken();
+  }
+  if (token != null) {
+    await ZendeskMessaging.updatePushNotificationToken(token);
+  }
+}
 ```
+
+> **重要（iOS）：** Zendesk iOS SDK 直接使用 APNs 进行推送，而非 FCM。你必须通过 `getAPNSToken()` 传入 APNs device token，而不是 `getToken()` 返回的 FCM registration token。传入错误的 token 类型会导致推送静默失败。APNs token 很少改变，但每次启动 app 时调用 `getAPNSToken()` 可确保 token 保持最新。
 
 ### 推送通知 API
 
@@ -403,7 +450,8 @@ Future<void> setupPushNotifications() async {
 // 检查 SDK 是否已初始化
 final isInit = await ZendeskMessaging.isInitialized();
 
-// 使 SDK 实例失效（清理）
+// 使 SDK 实例失效（清理）。在 Android 和 iOS 上都会清除本地存储的所有 SDK 数据
+//（用户、会话、缓存）。
 await ZendeskMessaging.invalidate();
 // 失效后，您必须再次调用 initialize() 才能使用 SDK
 ```
@@ -416,7 +464,7 @@ await ZendeskMessaging.invalidate();
 |------|--------|------|
 | `initialize(androidChannelKey, iosChannelKey)` | `Future<void>` | 初始化 SDK |
 | `isInitialized()` | `Future<bool>` | 检查 SDK 是否已初始化 |
-| `invalidate()` | `Future<void>` | 使 SDK 实例失效 |
+| `invalidate()` | `Future<void>` | 使 SDK 实例失效并清除本地 SDK 数据 |
 | `show()` | `Future<void>` | 显示消息 UI |
 | `showConversation(id)` | `Future<void>` | 显示特定会话 |
 | `showConversationList()` | `Future<void>` | 显示会话列表 |
@@ -433,6 +481,7 @@ await ZendeskMessaging.invalidate();
 | `setConversationFields(fields)` | `Future<void>` | 设置自定义字段 |
 | `clearConversationFields()` | `Future<void>` | 清除自定义字段 |
 | `getConnectionStatus()` | `Future<ZendeskConnectionStatus>` | 获取连接状态 |
+| `setLocale(locale)` | `Future<void>` | 设置客服界面语言 |
 | `updatePushNotificationToken(token)` | `Future<void>` | 注册推送 token |
 | `shouldBeDisplayed(data)` | `Future<ZendeskPushResponsibility>` | 检查通知来源 |
 | `handleNotification(data)` | `Future<bool>` | 处理推送通知 |
@@ -565,7 +614,8 @@ await ZendeskMessaging.listenUnreadMessages();
 
 | 插件 | Android SDK | iOS SDK |
 |------|-------------|---------|
-| 3.1.0 | 2.36.1 | 2.36.0 |
+| 3.5.0 – 3.6.0 | 2.40.0 | 2.39.0 |
+| 3.1.0 – 3.4.0 | 2.36.1 | 2.36.0 |
 | 3.0.0 | 2.36.1 | 2.36.0 |
 | 2.9.x | 2.26.0 | 2.24.0 |
 

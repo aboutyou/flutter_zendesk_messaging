@@ -20,6 +20,7 @@ Flutter 套件，用於將 Zendesk Messaging SDK 整合至您的行動應用程�
 - 未讀訊息數量追蹤
 - 對話標籤與自訂欄位
 - 連線狀態監控
+- 客服介面語系覆寫
 - 推播通知支援（FCM/APNs）
 
 ## 系統需求
@@ -303,6 +304,31 @@ final color = switch (status) {
 };
 ```
 
+## 語系設定
+
+覆寫裝置的系統語系，讓 Zendesk 客服介面符合 App 的語言設定。Zendesk SDK 內建 [33 種語言](https://developer.zendesk.com/documentation/zendesk-web-widget-sdks/sdks/android/localization/)。
+
+```dart
+// 最佳做法：在初始化之前設定語系
+await ZendeskMessaging.setLocale('es');
+await ZendeskMessaging.initialize(
+  androidChannelKey: '<YOUR_ANDROID_CHANNEL_KEY>',
+  iosChannelKey: '<YOUR_IOS_CHANNEL_KEY>',
+);
+
+// Android：也可在 show() 之前於執行期間切換
+await ZendeskMessaging.setLocale('ja');
+await ZendeskMessaging.show();
+
+// iOS：下次啟動 App 時才會生效
+await ZendeskMessaging.setLocale('fr');
+// 在 iOS 上，invalidate() + initialize() 不會重新載入語系。
+```
+
+**平台細節：**
+- **Android**：設定 `Locale.setDefault()` 並更新 application/activity 的資源設定。SDK 由 Android 資源系統解析 UI 字串，因此在 SDK 啟動客服 Activity 時生效，可於執行期間切換。
+- **iOS**：設定 `AppleLanguages` user default，決定 SDK 載入哪個語系 bundle。iOS 只在 App 啟動時讀取這個值，因此新語系要到**下次啟動 App** 才會生效；呼叫 `invalidate()` 再 `initialize()` 無法在執行期間切換（[#105](https://github.com/chyiiiiiiiiiiii/flutter_zendesk_messaging/issues/105)）。這個值會保存在裝置上，也會改變 iOS 為你的 App 本身載入的語系資源。
+
 ## 推播通知
 
 啟用推播通知，在應用程式於背景或已關閉時通知使用者有新訊息。
@@ -338,6 +364,7 @@ final color = switch (status) {
 ### 使用方式
 
 ```dart
+import 'dart:io' show Platform;
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:zendesk_messaging/zendesk_messaging.dart';
 
@@ -347,16 +374,22 @@ Future<void> setupPushNotifications() async {
   // 請求權限
   await messaging.requestPermission();
 
-  // 取得並註冊 token
-  final token = await messaging.getToken();
-  if (token != null) {
-    await ZendeskMessaging.updatePushNotificationToken(token);
-  }
+  // 依平台取得並註冊正確的 token
+  // - Android：透過 getToken() 取得 FCM token
+  // - iOS：透過 getAPNSToken() 取得 APNs device token
+  //   （Zendesk iOS SDK 需要 APNs token，而非 FCM token）
+  await _registerPushToken(messaging);
 
   // 監聽 token 重新整理
-  messaging.onTokenRefresh.listen((token) {
-    ZendeskMessaging.updatePushNotificationToken(token);
-  });
+  // - Android：onTokenRefresh 會回傳新的 FCM token
+  // - iOS：APNs token 很少改變（裝置還原、OS 更新）；
+  //   每次啟動 app 時透過 getAPNSToken() 重新取得（上方已處理）。
+  //   onTokenRefresh 回傳的是 FCM token，此處不適用。
+  if (Platform.isAndroid) {
+    messaging.onTokenRefresh.listen((token) {
+      ZendeskMessaging.updatePushNotificationToken(token);
+    });
+  }
 
   // 處理前景通知
   FirebaseMessaging.onMessage.listen((message) async {
@@ -377,7 +410,21 @@ Future<void> setupPushNotifications() async {
     await ZendeskMessaging.handleNotificationTap(message.data);
   });
 }
+
+Future<void> _registerPushToken(FirebaseMessaging messaging) async {
+  String? token;
+  if (Platform.isAndroid) {
+    token = await messaging.getToken();
+  } else if (Platform.isIOS) {
+    token = await messaging.getAPNSToken();
+  }
+  if (token != null) {
+    await ZendeskMessaging.updatePushNotificationToken(token);
+  }
+}
 ```
+
+> **重要（iOS）：** Zendesk iOS SDK 直接使用 APNs 進行推播，而非 FCM。你必須透過 `getAPNSToken()` 傳入 APNs device token，而不是 `getToken()` 回傳的 FCM registration token。傳入錯誤的 token 類型會導致推播靜默失敗。APNs token 很少改變，但每次啟動 app 時呼叫 `getAPNSToken()` 可確保 token 維持最新。
 
 ### 推播通知 API
 
@@ -403,7 +450,8 @@ Future<void> setupPushNotifications() async {
 // 檢查 SDK 是否已初始化
 final isInit = await ZendeskMessaging.isInitialized();
 
-// 使 SDK 實例失效（清理）
+// 使 SDK 實例失效（清理）。在 Android 與 iOS 上都會清除本機儲存的所有 SDK 資料
+//（使用者、對話、快取）。
 await ZendeskMessaging.invalidate();
 // 失效後，您必須再次呼叫 initialize() 才能使用 SDK
 ```
@@ -416,7 +464,7 @@ await ZendeskMessaging.invalidate();
 |------|--------|------|
 | `initialize(androidChannelKey, iosChannelKey)` | `Future<void>` | 初始化 SDK |
 | `isInitialized()` | `Future<bool>` | 檢查 SDK 是否已初始化 |
-| `invalidate()` | `Future<void>` | 使 SDK 實例失效 |
+| `invalidate()` | `Future<void>` | 使 SDK 實例失效並清除本機 SDK 資料 |
 | `show()` | `Future<void>` | 顯示訊息 UI |
 | `showConversation(id)` | `Future<void>` | 顯示特定對話 |
 | `showConversationList()` | `Future<void>` | 顯示對話列表 |
@@ -433,6 +481,7 @@ await ZendeskMessaging.invalidate();
 | `setConversationFields(fields)` | `Future<void>` | 設定自訂欄位 |
 | `clearConversationFields()` | `Future<void>` | 清除自訂欄位 |
 | `getConnectionStatus()` | `Future<ZendeskConnectionStatus>` | 取得連線狀態 |
+| `setLocale(locale)` | `Future<void>` | 設定客服介面語系 |
 | `updatePushNotificationToken(token)` | `Future<void>` | 註冊推播 token |
 | `shouldBeDisplayed(data)` | `Future<ZendeskPushResponsibility>` | 檢查通知來源 |
 | `handleNotification(data)` | `Future<bool>` | 處理推播通知 |
@@ -565,7 +614,8 @@ await ZendeskMessaging.listenUnreadMessages();
 
 | 套件 | Android SDK | iOS SDK |
 |------|-------------|---------|
-| 3.1.0 | 2.36.1 | 2.36.0 |
+| 3.5.0 – 3.6.0 | 2.40.0 | 2.39.0 |
+| 3.1.0 – 3.4.0 | 2.36.1 | 2.36.0 |
 | 3.0.0 | 2.36.1 | 2.36.0 |
 | 2.9.x | 2.26.0 | 2.24.0 |
 

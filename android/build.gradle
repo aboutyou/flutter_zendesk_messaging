@@ -23,7 +23,16 @@ rootProject.allprojects {
 }
 
 apply plugin: 'com.android.library'
-apply plugin: 'kotlin-android'
+
+// Flutter supplies a built-in Kotlin Gradle Plugin on AGP 9+. Applying KGP
+// ourselves on AGP 9 breaks the build, so only apply it on older AGP versions
+// where it isn't provided. This keeps backward compatibility for apps still on
+// AGP < 9 while supporting the AGP 9+ toolchain.
+// https://docs.flutter.dev/release/breaking-changes/migrate-to-built-in-kotlin/for-plugin-authors
+def agpMajor = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION.tokenize('.')[0] as int
+if (agpMajor < 9) {
+    apply plugin: 'kotlin-android'
+}
 
 android {
     namespace 'com.chyiiiiiiiiiiiiii.zendesk_messaging'
@@ -33,10 +42,6 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = '17'
     }
 
     sourceSets {
@@ -49,7 +54,13 @@ android {
     }
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}
+
 dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
-    implementation "zendesk.messaging:messaging-android:2.36.1"
+    implementation "zendesk.messaging:messaging-android:2.40.0"
 }

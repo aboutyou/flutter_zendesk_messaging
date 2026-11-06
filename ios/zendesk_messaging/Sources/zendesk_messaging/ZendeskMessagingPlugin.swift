@@ -2,8 +2,9 @@ import Flutter
 import UIKit
 import ZendeskSDKMessaging
 
-public class SwiftZendeskMessagingPlugin: NSObject, FlutterPlugin, UNUserNotificationCenterDelegate {
-    let TAG = "[SwiftZendeskMessagingPlugin]"
+@objc(ZendeskMessagingPlugin)
+public class ZendeskMessagingPlugin: NSObject, FlutterPlugin, UNUserNotificationCenterDelegate {
+    let TAG = "[ZendeskMessagingPlugin]"
     private var channel: FlutterMethodChannel
     private var zendeskMessaging: ZendeskMessaging?
     var isInitialized = false
@@ -20,7 +21,7 @@ public class SwiftZendeskMessagingPlugin: NSObject, FlutterPlugin, UNUserNotific
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(name: "zendesk_messaging", binaryMessenger: registrar.messenger())
-        let instance = SwiftZendeskMessagingPlugin(channel: channel)
+        let instance = ZendeskMessagingPlugin(channel: channel)
         registrar.addMethodCallDelegate(instance, channel: channel)
         registrar.addApplicationDelegate(instance)
     }
@@ -252,6 +253,7 @@ public class SwiftZendeskMessagingPlugin: NSObject, FlutterPlugin, UNUserNotific
             }
             zendeskMessaging?.clearConversationFields()
             result(nil)
+
         case "checkAndDisplayFirebaseNotification":
             // iOS uses APNs directly via UNUserNotificationCenterDelegate, not Firebase
             result(false)
@@ -275,6 +277,20 @@ public class SwiftZendeskMessagingPlugin: NSObject, FlutterPlugin, UNUserNotific
             result(nil)
 
         // ================================================================
+        // Locale
+        // ================================================================
+
+        case "setLocale":
+            // No isInitialized check — setLocale only writes AppleLanguages,
+            // which iOS reads at app launch, so it applies from the next launch.
+            guard let locale = arguments?["locale"] as? String, !locale.isEmpty else {
+                result(FlutterError(code: "invalid_argument", message: "locale is required", details: nil))
+                return
+            }
+            zendeskMessaging?.setLocale(locale: locale)
+            result(nil)
+
+        // ================================================================
         // Push Notifications
         // ================================================================
 
@@ -288,7 +304,7 @@ public class SwiftZendeskMessagingPlugin: NSObject, FlutterPlugin, UNUserNotific
                 result(FlutterError(code: "invalid_argument", message: "token is required", details: nil))
                 return
             }
-            zendeskMessaging?.updatePushNotificationToken(token: token)
+            zendeskMessaging?.updatePushNotificationTokenString(token)
             result(nil)
 
         case "shouldBeDisplayed":

@@ -1,3 +1,4 @@
+import Flutter
 import UIKit
 import ZendeskSDKLogger
 import ZendeskSDKMessaging
@@ -10,11 +11,11 @@ public class ZendeskMessaging: NSObject {
 
     let TAG = "[ZendeskMessaging]"
 
-    private weak var zendeskPlugin: SwiftZendeskMessagingPlugin?
+    private weak var zendeskPlugin: ZendeskMessagingPlugin?
     private let channel: FlutterMethodChannel
     private var lastConnectionStatus: String = "unknown"
 
-    init(flutterPlugin: SwiftZendeskMessagingPlugin, channel: FlutterMethodChannel) {
+    init(flutterPlugin: ZendeskMessagingPlugin, channel: FlutterMethodChannel) {
         self.zendeskPlugin = flutterPlugin
         self.channel = channel
     }
@@ -42,7 +43,10 @@ public class ZendeskMessaging: NSObject {
 
     func invalidate() {
         Zendesk.instance?.removeEventObserver(self)
-        Zendesk.invalidate()
+        // Clear stored user data and conversations so the next user starts
+        // fresh. The no-argument overload keeps storage on iOS, while Android's
+        // invalidate() always clears it; passing true matches Android.
+        Zendesk.invalidate(true)
         self.zendeskPlugin?.isInitialized = false
         self.zendeskPlugin?.isLoggedIn = false
         print("\(self.TAG) - invalidate")
@@ -434,6 +438,16 @@ public class ZendeskMessaging: NSObject {
     }
 
     // ============================================================================
+    // Locale
+    // ============================================================================
+
+    func setLocale(locale: String) {
+        UserDefaults.standard.set([locale], forKey: "AppleLanguages")
+        UserDefaults.standard.synchronize()
+        print("\(self.TAG) - setLocale: \(locale)")
+    }
+
+    // ============================================================================
     // Push Notifications
     // ============================================================================
 
@@ -444,17 +458,28 @@ public class ZendeskMessaging: NSObject {
         print("\(self.TAG) - updatePushNotificationToken: token updated")
     }
 
-    /// Update the push notification token from a string (FCM token format).
-    /// Converts the string to Data before passing to SDK.
+    /// Update the push notification token from a hex string (APNs format).
+    /// The Flutter side should pass the APNs device token as a hex string,
+    /// not the FCM token. Use `FirebaseMessaging.instance.getAPNSToken()`.
     func updatePushNotificationTokenString(_ token: String) {
-        // For iOS, we typically receive Data from APNs, but if using FCM,
-        // the token comes as a string. We pass it directly to the SDK.
-        if let tokenData = token.data(using: .utf8) {
-            PushNotifications.updatePushNotificationToken(tokenData)
-            print("\(self.TAG) - updatePushNotificationTokenString: token updated")
-        } else {
-            print("\(self.TAG) - updatePushNotificationTokenString: invalid token format")
+        let hex = token.hasPrefix("0x") ? String(token.dropFirst(2)) : token
+        guard hex.count.isMultiple(of: 2) else {
+            print("\(self.TAG) - updatePushNotificationTokenString: token length must be even hex")
+            return
         }
+        var data = Data(capacity: hex.count / 2)
+        var idx = hex.startIndex
+        while idx < hex.endIndex {
+            let next = hex.index(idx, offsetBy: 2)
+            guard let byte = UInt8(hex[idx..<next], radix: 16) else {
+                print("\(self.TAG) - updatePushNotificationTokenString: invalid hex char")
+                return
+            }
+            data.append(byte)
+            idx = next
+        }
+        PushNotifications.updatePushNotificationToken(data)
+        print("\(self.TAG) - updatePushNotificationTokenString: token updated (\(data.count) bytes)")
     }
 
     /// Check if a push notification should be displayed by Zendesk.
@@ -523,31 +548,7 @@ public class ZendeskMessaging: NSObject {
         }
     }
 
-    func updatePushNotificationToken(token: String) {
-        if let hexData = data(fromHexString: token) {
-            PushNotifications.updatePushNotificationToken(hexData)
-            print("\(self.TAG) - updatePushNotificationToken")
-        }
-    }
-
     func setLoggable(isLoggable: Bool) {
         Logger.enabled = isLoggable
-    }
-
-    private func data(fromHexString hex: String) -> Data? {
-        guard hex.count % 2 == 0 else { return nil }
-
-        var data = Data(capacity: hex.count / 2)
-        var index = hex.startIndex
-
-        while index < hex.endIndex {
-            let nextIndex = hex.index(index, offsetBy: 2)
-            let byteString = hex[index..<nextIndex]
-            guard let byte = UInt8(byteString, radix: 16) else { return nil }
-            data.append(byte)
-            index = nextIndex
-        }
-
-        return data
     }
 }
