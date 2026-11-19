@@ -319,8 +319,21 @@ class ZendeskMessaging(
 
     fun initialize(channelKey: String, result: MethodChannel.Result) {
         println("$TAG - Channel Key - $channelKey")
+        // Zendesk.initialize requires an Activity. Guard against a null
+        // Activity (background isolate / terminated state) so callers get a
+        // clean error instead of a NullPointerException. Push display does
+        // not need initialize — use shouldBeDisplayed/handleNotification.
+        val currentActivity = plugin.activity ?: run {
+            println("$TAG - initialize skipped: no Activity in this context")
+            result.error(
+                "no_activity",
+                "Zendesk.initialize requires an Activity and cannot run without one",
+                null,
+            )
+            return
+        }
         Zendesk.initialize(
-            plugin.activity!!,
+            currentActivity,
             channelKey,
             successCallback = { value ->
                 plugin.isInitialized = true
@@ -497,6 +510,33 @@ class ZendeskMessaging(
     }
 
     // ============================================================================
+    // Locale
+    // ============================================================================
+
+    fun setLocale(locale: String) {
+        val parsedLocale = java.util.Locale.forLanguageTag(locale)
+        java.util.Locale.setDefault(parsedLocale)
+
+        // Update application context so new Activities launched by the SDK
+        // inherit the correct locale for resource resolution
+        plugin.activity?.applicationContext?.let { appContext ->
+            val appConfig = android.content.res.Configuration(appContext.resources.configuration)
+            appConfig.setLocale(parsedLocale)
+            @Suppress("DEPRECATION")
+            appContext.resources.updateConfiguration(appConfig, appContext.resources.displayMetrics)
+        }
+
+        // Update current activity context for immediate effect
+        plugin.activity?.let { activity ->
+            val config = android.content.res.Configuration(activity.resources.configuration)
+            config.setLocale(parsedLocale)
+            @Suppress("DEPRECATION")
+            activity.resources.updateConfiguration(config, activity.resources.displayMetrics)
+        }
+        println("$TAG - setLocale: $locale")
+    }
+
+    // ============================================================================
     // Push Notifications
     // ============================================================================
 
@@ -584,8 +624,9 @@ class ZendeskMessaging(
         var didHandleNotification = false
         when (responsibility) {
             PushResponsibility.MESSAGING_SHOULD_DISPLAY -> {
+                val context = plugin.applicationContext ?: plugin.activity ?: return false
+                PushNotifications.displayNotification(context = context, messageData = messageData)
                 didHandleNotification = true
-                PushNotifications.displayNotification(context = plugin.context, messageData = messageData)
             }
             PushResponsibility.MESSAGING_SHOULD_NOT_DISPLAY -> {}
             PushResponsibility.NOT_FROM_MESSAGING -> {}

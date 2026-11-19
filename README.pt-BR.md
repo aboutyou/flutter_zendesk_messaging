@@ -20,6 +20,7 @@ Um plugin Flutter para integrar o SDK de Mensagens da Zendesk em seus aplicativo
 - Rastreamento da contagem de mensagens não lidas
 - Tags de conversa e campos personalizados
 - Monitoramento do status da conexão
+- Substituição do idioma da interface de mensagens
 - Suporte a notificações push (FCM/APNs)
 
 ## Requisitos
@@ -203,14 +204,46 @@ await ZendeskMessaging.setConversationFields({
 await ZendeskMessaging.clearConversationFields();
 ```
 
+## Idioma
+
+Substitui o idioma do sistema do dispositivo para que a interface do Zendesk Messaging corresponda ao idioma do seu aplicativo. O SDK do Zendesk inclui [33 idiomas](https://developer.zendesk.com/documentation/zendesk-web-widget-sdks/sdks/android/localization/).
+
+```dart
+// Melhor opção: defina o idioma antes de inicializar
+await ZendeskMessaging.setLocale('es');
+await ZendeskMessaging.initialize(
+  androidChannelKey: '<YOUR_ANDROID_CHANNEL_KEY>',
+  iosChannelKey: '<YOUR_IOS_CHANNEL_KEY>',
+);
+
+// Android: também é possível trocar em tempo de execução antes de show()
+await ZendeskMessaging.setLocale('ja');
+await ZendeskMessaging.show();
+
+// iOS: aplicado na próxima abertura do app
+await ZendeskMessaging.setLocale('fr');
+// No iOS, invalidate() + initialize() não recarrega o idioma.
+```
+
+**Detalhes por plataforma:**
+- **Android**: Define `Locale.setDefault()` e atualiza a configuração de recursos do aplicativo/atividade. O SDK resolve os textos da interface pelo sistema de recursos do Android, portanto surte efeito quando o SDK abre a atividade de mensagens. Pode ser alterado em tempo de execução.
+- **iOS**: Define a preferência de usuário `AppleLanguages`, que controla qual pacote de localização o SDK carrega. O iOS só lê esse valor quando o app é aberto, então o novo idioma é aplicado na **próxima abertura do app**. Chamar `invalidate()` e depois `initialize()` não o troca em tempo de execução ([#105](https://github.com/chyiiiiiiiiiiii/flutter_zendesk_messaging/issues/105)). O valor fica salvo no dispositivo e também define o idioma que o iOS usa para os recursos localizados do seu próprio app.
+
 ## Notificações Push
 
 ```dart
+import 'dart:io' show Platform;
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:zendesk_messaging/zendesk_messaging.dart';
 
-// Registrar token de push
-final token = await FirebaseMessaging.instance.getToken();
+// Registra o token de push correto de acordo com a plataforma
+// - Android: token FCM via getToken()
+// - iOS: token de dispositivo APNs via getAPNSToken()
+//   (o SDK iOS do Zendesk exige o token APNs, NÃO o token FCM)
+final messaging = FirebaseMessaging.instance;
+final token = Platform.isIOS
+    ? await messaging.getAPNSToken()
+    : await messaging.getToken();
 if (token != null) {
   await ZendeskMessaging.updatePushNotificationToken(token);
 }
@@ -224,6 +257,8 @@ FirebaseMessaging.onMessage.listen((message) async {
 });
 ```
 
+> **Importante (iOS):** O SDK iOS do Zendesk usa APNs diretamente para notificações push, não FCM. Você deve passar o token de dispositivo APNs via `getAPNSToken()`, não o token de registro FCM de `getToken()`. Usar o tipo de token errado fará as notificações falharem silenciosamente.
+
 ## Referência da API
 
 ### ZendeskMessaging
@@ -234,6 +269,7 @@ FirebaseMessaging.onMessage.listen((message) async {
 | `show()` | `Future<void>` | Exibe a interface de mensagens |
 | `loginUser(jwt)` | `Future<ZendeskLoginResponse>` | Faz login com JWT |
 | `logoutUser()` | `Future<void>` | Faz logout do usuário |
+| `setLocale(locale)` | `Future<void>` | Define o idioma da interface de mensagens |
 | ... | ... | ... |
 
 ## Licença

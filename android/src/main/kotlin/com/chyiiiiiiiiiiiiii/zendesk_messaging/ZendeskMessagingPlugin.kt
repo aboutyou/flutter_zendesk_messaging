@@ -1,7 +1,7 @@
 package com.chyiiiiiiiiiiiiii.zendesk_messaging
 
-import android.content.Context
 import android.app.Activity
+import android.content.Context
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -15,9 +15,9 @@ class ZendeskMessagingPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
 
     private lateinit var channel: MethodChannel
     private lateinit var zendeskMessaging: ZendeskMessaging
-    lateinit var context: Context
 
     var activity: Activity? = null
+    var applicationContext: Context? = null
     var isInitialized: Boolean = false
     var isLoggedIn: Boolean = false
     var pushNotificationsDisabled: Boolean = false
@@ -25,7 +25,7 @@ class ZendeskMessagingPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         channel = MethodChannel(flutterPluginBinding.binaryMessenger, "zendesk_messaging")
         channel.setMethodCallHandler(this)
-        context = flutterPluginBinding.applicationContext
+        applicationContext = flutterPluginBinding.applicationContext
         zendeskMessaging = ZendeskMessaging(this, channel)
     }
 
@@ -272,6 +272,27 @@ class ZendeskMessagingPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
             }
 
             // ================================================================
+            // Locale
+            // ================================================================
+
+            "setLocale" -> {
+                // No isInitialized check — setLocale can be called before
+                // initialize() to set the locale for the SDK at startup.
+                val locale = call.argument<String>("locale")
+                if (locale.isNullOrEmpty()) {
+                    result.error("invalid_argument", "locale is required", null)
+                    return
+                }
+                try {
+                    zendeskMessaging.setLocale(locale)
+                    result.success(null)
+                } catch (err: Throwable) {
+                    println("$tag - setLocale error: ${err.message}")
+                    result.error("set_locale_error", err.message, null)
+                }
+            }
+
+            // ================================================================
             // Push Notifications
             // ================================================================
 
@@ -321,8 +342,12 @@ class ZendeskMessagingPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                         result.error("invalid_argument", "messageData is required", null)
                         return
                     }
-                    val context = activity ?: run {
-                        result.error("no_context", "Activity context is null", null)
+                    // Prefer the application context so notifications can be
+                    // displayed from a background isolate / terminated state
+                    // where no Activity is attached. PushNotifications
+                    // .displayNotification only needs a Context, not an Activity.
+                    val context = applicationContext ?: activity ?: run {
+                        result.error("no_context", "No context available", null)
                         return
                     }
                     // Convert Map<String, Any> to Map<String, String>
